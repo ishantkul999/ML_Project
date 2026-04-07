@@ -32,6 +32,8 @@ import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
+os.system("git lfs pull")
+
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Multi-Modal Machine Learning Intelligence System",
