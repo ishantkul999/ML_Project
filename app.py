@@ -997,12 +997,6 @@ with tab5:
                     img        = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
                     if "EfficientNet" in model_choice_sports:
-                        # ── FIX: load EfficientNetB0 feature extractor separately ──
-                        # The .keras file contains only the classifier head (trained on
-                        # top of frozen EfficientNetB0 features). We extract features
-                        # with the base model first, then pass them through the head.
-                        from tensorflow.keras.applications import EfficientNetB0
-                        from tensorflow.keras.applications.efficientnet import preprocess_input
                         from PIL import Image
                         import io
 
@@ -1010,44 +1004,31 @@ with tab5:
                         pil_img = Image.open(io.BytesIO(uploaded_img.read())).convert("RGB")
                         pil_img = pil_img.resize((224, 224))
                         arr     = np.array(pil_img, dtype=np.float32)
-                        arr     = preprocess_input(arr)
+                        arr     = tf.keras.applications.efficientnet.preprocess_input(arr)
                         arr     = np.expand_dims(arr, axis=0)
 
-                        # Feature extractor
-                        base_model = EfficientNetB0(
-                            weights="imagenet",
-                            include_top=False,
-                            pooling="avg",
-                            input_shape=(224, 224, 3)
-                        )
-                        base_model.trainable = False
-                        feat = base_model.predict(arr, verbose=0)  # shape (1, 1280)
+                        # Build model and load weights
+                        def build_sports_model(num_classes=100):
+                            base    = tf.keras.applications.EfficientNetB0(
+                                include_top=False,
+                                weights=None,
+                                input_shape=(224, 224, 3),
+                                pooling='avg'
+                            )
+                            inputs  = tf.keras.Input(shape=(224, 224, 3))
+                            x       = base(inputs, training=False)
+                            x       = tf.keras.layers.Dropout(0.3)(x)
+                            x       = tf.keras.layers.Dense(256, activation='relu')(x)
+                            x       = tf.keras.layers.Dropout(0.2)(x)
+                            outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+                            return tf.keras.Model(inputs, outputs)
 
-                        # Try loading the head model (classifier trained on features)
-                        head_path = os.path.join(MODEL_DIR, "sports_efficientnet.keras")
-                        try:
-                            from tensorflow.keras.models import load_model as keras_load
-                            head_model = keras_load(head_path, compile=False)
-                            # Check if head expects features (1280-d) or raw image (224,224,3)
-                            expected_input = head_model.input_shape
-                            if len(expected_input) == 4:
-                                # Head expects full image — feed the image directly
-                                X_pred     = arr
-                                pred_proba = head_model.predict(X_pred, verbose=0)[0]
-                            else:
-                                # Head expects feature vector
-                                X_pred     = feat
-                                pred_proba = head_model.predict(X_pred, verbose=0)[0]
-                        except Exception as load_err:
-                            # Fallback: build full EfficientNetB0 pipeline and use
-                            # the saved model as the top classifier layer
-                            st.warning(f"Head model load warning: {load_err}. Attempting full model inference...")
-                            from tensorflow.keras.models import load_model as keras_load
-                            full_model = keras_load(head_path, compile=False)
-                            pred_proba = full_model.predict(arr, verbose=0)[0]
+                        sports_model = build_sports_model(num_classes=100)
+                        sports_model.load_weights(os.path.join(MODEL_DIR, 'sports_efficientnet.weights.h5'))
 
-                        pred_idx = int(np.argmax(pred_proba))
-                        color    = "#00cfff"
+                        pred_proba = sports_model.predict(arr, verbose=0)[0]
+                        pred_idx   = int(np.argmax(pred_proba))
+                        color      = "#00cfff"
 
                         sports_json = os.path.join(MODEL_DIR, "sports_class_names.json")
                         if os.path.exists(sports_json):
@@ -1066,7 +1047,7 @@ with tab5:
 
                         all_names = []
                         for i in range(len(pred_proba)):
-                            if sports_json and os.path.exists(sports_json):
+                            if os.path.exists(sports_json):
                                 all_names.append(sports_map.get(str(i), f"Class {i}"))
                             else:
                                 all_names.append(f"Class {i}")
