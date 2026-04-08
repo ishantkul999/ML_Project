@@ -600,13 +600,35 @@ with tab2:
                         prediction = model.predict(X_scaled)[0]
                         pred_name  = get_siren_name(prediction)
                     else:
-                        from tensorflow.keras.models import load_model as keras_load
-                        cnn_model   = keras_load(os.path.join(MODEL_DIR, "cnn_model.h5"))
-                        mfcc_mean   = mfcc.mean(axis=1).reshape(1, 40, 1)
-                        pred_proba  = cnn_model.predict(mfcc_mean)[0]
-                        pred_idx    = int(np.argmax(pred_proba))
-                        pred_name   = get_siren_name(pred_idx)
-                        color       = "#00cfff"
+                        import tensorflow as tf
+                        from tensorflow import keras
+
+                        def build_cnn_model():
+                            inputs = keras.Input(shape=(40, 1))
+                            x = keras.layers.Conv1D(32, 5, padding='same', activation='relu')(inputs)
+                            x = keras.layers.BatchNormalization(momentum=0.99, epsilon=0.001)(x)
+                            x = keras.layers.MaxPooling1D(2)(x)
+                            x = keras.layers.Dropout(0.3)(x)
+                            x = keras.layers.Conv1D(64, 5, padding='same', activation='relu')(x)
+                            x = keras.layers.BatchNormalization(momentum=0.99, epsilon=0.001)(x)
+                            x = keras.layers.MaxPooling1D(2)(x)
+                            x = keras.layers.Dropout(0.3)(x)
+                            x = keras.layers.GlobalMaxPooling1D()(x)
+                            x = keras.layers.Dense(64, activation='relu')(x)
+                            x = keras.layers.Dropout(0.3)(x)
+                            outputs = keras.layers.Dense(3, activation='softmax')(x)
+                            model = keras.Model(inputs, outputs)
+                            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+                            return model
+
+                        cnn_model = build_cnn_model()
+                        cnn_model.load_weights(os.path.join(MODEL_DIR, "cnn_model.weights.h5"))
+
+                        mfcc_mean  = mfcc.mean(axis=1).reshape(1, 40, 1)
+                        pred_proba = cnn_model.predict(mfcc_mean)[0]
+                        pred_idx   = int(np.argmax(pred_proba))
+                        pred_name  = get_siren_name(pred_idx)
+                        color      = "#00cfff"
 
                         st.markdown(f"""
                         <div class="result-box">
